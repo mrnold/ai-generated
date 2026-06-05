@@ -45,10 +45,10 @@ func TestHashDiffApplyRoundTrip(t *testing.T) {
 	destManifest := filepath.Join(dir, "dest.jsonl")
 	diffList := filepath.Join(dir, "repair.jsonl")
 
-	if err := hashDevice(sourcePath, sourceManifest, blockSize, 2, 0); err != nil {
+	if err := hashDevice(sourcePath, sourceManifest, blockSize, 2, 0, 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := hashDevice(destPath, destManifest, blockSize, 2, 0); err != nil {
+	if err := hashDevice(destPath, destManifest, blockSize, 2, 0, 0); err != nil {
 		t.Fatal(err)
 	}
 	if err := diffManifests(sourceManifest, destManifest, diffList); err != nil {
@@ -66,12 +66,12 @@ func TestHashDiffApplyRoundTrip(t *testing.T) {
 		t.Fatalf("expected block index 1, got %d", records[0].Index)
 	}
 
-	if err := applyBlocks(sourcePath, destPath, diffList, 1, false); err != nil {
+	if err := applyBlocks(sourcePath, destPath, diffList, 1, false, 0); err != nil {
 		t.Fatal(err)
 	}
 
 	destManifestAfter := filepath.Join(dir, "dest-after.jsonl")
-	if err := hashDevice(destPath, destManifestAfter, blockSize, 2, 0); err != nil {
+	if err := hashDevice(destPath, destManifestAfter, blockSize, 2, 0, 0); err != nil {
 		t.Fatal(err)
 	}
 	if err := diffManifests(sourceManifest, destManifestAfter, filepath.Join(dir, "after-repair.jsonl")); err != nil {

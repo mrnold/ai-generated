@@ -57,6 +57,14 @@ Static binary; no cgo. Copy the same binary to the VMware helper VM and the Open
 
 Resume a long hash with `-start-index N` (manifest will contain only blocks from N onward; merge manifests externally or re-hash from scratch for simplicity).
 
+`hash` and `apply` log progress every **10 seconds** by default (plus once at start and end), including throughput and ETA:
+
+```
+progress: hashed 120/35000 blocks (0.3%), 120.0 GiB / 34.8 TiB, rate 412.3 MiB/s, elapsed 5m0s, ETA 23h15m
+```
+
+Use `-progress-interval 30s` to change the interval, or `-progress-interval 0` to disable.
+
 ## Suggested deployment
 
 ### VMware side (helper VM)

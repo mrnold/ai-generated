@@ -8,9 +8,10 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 )
 
-func applyBlocks(sourcePath string, destPath string, diffPath string, workers int, dryRun bool) error {
+func applyBlocks(sourcePath string, destPath string, diffPath string, workers int, dryRun bool, progressInterval time.Duration) error {
 	records, err := readDiffManifest(diffPath)
 	if err != nil {
 		return err
@@ -39,9 +40,22 @@ func applyBlocks(sourcePath string, destPath string, diffPath string, workers in
 		return nil
 	}
 
+	var totalItems uint64
+	var totalBytes int64
+	for _, rec := range records {
+		if rec.Reason == "missing_on_source" {
+			continue
+		}
+		totalItems++
+		totalBytes += rec.Size
+	}
+
+	progress := newProgressReporter("copied", totalItems, totalBytes, progressInterval)
+	progress.start()
+	defer progress.stop()
+
 	jobs := make(chan DiffRecord, workers*2)
 	var wg sync.WaitGroup
-	var copied atomic.Uint64
 	var failed atomic.Uint64
 
 	for range workers {
@@ -55,10 +69,7 @@ func applyBlocks(sourcePath string, destPath string, diffPath string, workers in
 					log.Printf("copy block %d at offset %d failed: %v", rec.Index, rec.Offset, err)
 					continue
 				}
-				done := copied.Add(1)
-				if done%50 == 0 || done == uint64(len(records)) {
-					log.Printf("copied %d/%d blocks (%.1f%%)", done, len(records), percent(done, uint64(len(records))))
-				}
+				progress.add(rec.Size)
 			}
 		}()
 	}
@@ -79,7 +90,7 @@ func applyBlocks(sourcePath string, destPath string, diffPath string, workers in
 	if failed.Load() > 0 {
 		return fmt.Errorf("apply finished with %d block failures", failed.Load())
 	}
-	log.Printf("applied %d blocks from %s to %s", copied.Load(), sourcePath, destPath)
+	log.Printf("applied %d blocks (%s) from %s to %s", totalItems, formatBytes(totalBytes), sourcePath, destPath)
 	return nil
 }
 

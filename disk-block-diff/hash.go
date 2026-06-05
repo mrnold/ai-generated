@@ -9,13 +9,14 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 type readerAt interface {
 	io.ReaderAt
 }
 
-func hashDevice(devicePath string, outputPath string, blockSize int64, workers int, startIndex uint64) error {
+func hashDevice(devicePath string, outputPath string, blockSize int64, workers int, startIndex uint64, progressInterval time.Duration) error {
 	f, err := os.Open(devicePath)
 	if err != nil {
 		return fmt.Errorf("open device %s: %w", devicePath, err)
@@ -45,9 +46,19 @@ func hashDevice(devicePath string, outputPath string, blockSize int64, workers i
 		return writeBlockRecord(out, rec)
 	}
 
+	remainingBlocks := totalBlocks - startIndex
+	var totalBytes int64
+	for index := startIndex; index < totalBlocks; index++ {
+		_, size := blockSpec(index, deviceSize, blockSize)
+		totalBytes += size
+	}
+
+	progress := newProgressReporter("hashed", remainingBlocks, totalBytes, progressInterval)
+	progress.start()
+	defer progress.stop()
+
 	jobs := make(chan uint64, workers*2)
 	var wg sync.WaitGroup
-	var hashed atomic.Uint64
 	var failed atomic.Uint64
 
 	for range workers {
@@ -76,10 +87,7 @@ func hashDevice(devicePath string, outputPath string, blockSize int64, workers i
 					log.Printf("write manifest block %d failed: %v", index, err)
 					continue
 				}
-				done := hashed.Add(1)
-				if done%100 == 0 || done == uint64(totalBlocks-startIndex) {
-					log.Printf("hashed %d/%d blocks (%.1f%%)", done, totalBlocks-startIndex, percent(done, totalBlocks-startIndex))
-				}
+				progress.add(size)
 			}
 		}()
 	}
@@ -93,7 +101,7 @@ func hashDevice(devicePath string, outputPath string, blockSize int64, workers i
 	if failed.Load() > 0 {
 		return fmt.Errorf("hashing finished with %d block failures", failed.Load())
 	}
-	log.Printf("wrote manifest %s (%d blocks, block size %d bytes)", outputPath, totalBlocks-startIndex, blockSize)
+	log.Printf("wrote manifest %s (%d blocks, %s total)", outputPath, remainingBlocks, formatBytes(totalBytes))
 	return nil
 }
 

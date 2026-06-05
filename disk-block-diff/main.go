@@ -63,13 +63,15 @@ Usage:
 
 Options for hash/info:
   -block-size SIZE   Chunk size (default 1GiB). Examples: 1GiB, 1G, 1073741824
-  -workers N         Parallel hash workers (default 4)
-  -start-index N     Resume hashing at block index N (default 0)
+  -workers N              Parallel hash workers (default 4)
+  -start-index N          Resume hashing at block index N (default 0)
+  -progress-interval DUR  Progress log interval (default 10s; 0 disables)
 
 Options for apply:
-  -workers N         Parallel copy workers (default 2)
-  -dry-run           Print blocks that would be copied
-  -nbd-state PATH    Read source device from nbd-open state file
+  -workers N              Parallel copy workers (default 2)
+  -dry-run                Print blocks that would be copied
+  -nbd-state PATH         Read source device from nbd-open state file
+  -progress-interval DUR  Progress log interval (default 10s; 0 disables)
 
 Options for nbd-open:
   -server URL        vCenter host/URL (env: DISK_BLOCK_DIFF_VCENTER_SERVER)
@@ -120,6 +122,7 @@ func runHash(args []string) {
 	blockSizeRaw := fs.String("block-size", "1GiB", "Hash chunk size")
 	workers := fs.Int("workers", 4, "Parallel workers")
 	startIndex := fs.Uint64("start-index", 0, "Start at block index (resume)")
+	progressIntervalRaw := fs.String("progress-interval", "10s", "Progress log interval (0 disables)")
 	_ = fs.Parse(args)
 
 	if *device == "" || *output == "" {
@@ -130,7 +133,11 @@ func runHash(args []string) {
 	if err != nil {
 		log.Fatalf("invalid block-size: %v", err)
 	}
-	if err := hashDevice(*device, *output, blockSize, *workers, *startIndex); err != nil {
+	progressInterval, err := parseProgressInterval(*progressIntervalRaw)
+	if err != nil {
+		log.Fatalf("invalid progress-interval: %v", err)
+	}
+	if err := hashDevice(*device, *output, blockSize, *workers, *startIndex, progressInterval); err != nil {
 		log.Fatalf("%v", err)
 	}
 }
@@ -159,6 +166,7 @@ func runApply(args []string) {
 	nbdState := fs.String("nbd-state", "", "Use source device from nbd-open state file")
 	workers := fs.Int("workers", 2, "Parallel copy workers")
 	dryRun := fs.Bool("dry-run", false, "List blocks without copying")
+	progressIntervalRaw := fs.String("progress-interval", "10s", "Progress log interval (0 disables)")
 	_ = fs.Parse(args)
 
 	sourcePath := *source
@@ -173,7 +181,11 @@ func runApply(args []string) {
 		fs.Usage()
 		os.Exit(2)
 	}
-	if err := applyBlocks(sourcePath, *dest, *blocks, *workers, *dryRun); err != nil {
+	progressInterval, err := parseProgressInterval(*progressIntervalRaw)
+	if err != nil {
+		log.Fatalf("invalid progress-interval: %v", err)
+	}
+	if err := applyBlocks(sourcePath, *dest, *blocks, *workers, *dryRun, progressInterval); err != nil {
 		log.Fatalf("%v", err)
 	}
 }
