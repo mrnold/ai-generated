@@ -1,0 +1,38 @@
+# Example pod for hashing an imported block-mode PVC on OpenShift.
+# Adjust namespace, PVC name, and image (build disk-block-diff into a minimal image).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: disk-block-diff-hash
+  namespace: default
+spec:
+  restartPolicy: Never
+  containers:
+    - name: hasher
+      image: quay.io/centos/centos:stream9
+      command:
+        - /bin/bash
+        - -ec
+        - |
+          # Replace with a image that contains disk-block-diff, or mount binary via ConfigMap.
+          ls -l /dev/cdi-block-volume
+          /usr/local/bin/disk-block-diff info -device /dev/cdi-block-volume
+          /usr/local/bin/disk-block-diff hash \
+            -device /dev/cdi-block-volume \
+            -output /var/tmp/dest.jsonl \
+            -workers 8
+          ls -lh /var/tmp/dest.jsonl
+      securityContext:
+        privileged: true
+      volumeMounts:
+        - name: target
+          mountPath: /dev/cdi-block-volume
+        - name: scratch
+          mountPath: /var/tmp
+  volumes:
+    - name: target
+      persistentVolumeClaim:
+        claimName: REPLACE_WITH_PVC_NAME
+    - name: scratch
+      emptyDir:
+        sizeLimit: 2Gi
