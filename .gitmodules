@@ -1,0 +1,6 @@
+[submodule "vmware-disk-monitor"]
+	path = vmware-disk-monitor
+	url = git@github.com:mrnold-agent/vmware-disk-monitor.git
+[submodule "disk-block-diff"]
+	path = disk-block-diff
+	url = git@github.com:mrnold-agent/disk-block-diff.git
