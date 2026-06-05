@@ -1,0 +1,81 @@
+# Privileged pod for repairing an imported block PVC from a VMware source via VDDK.
+# Build disk-block-diff into a CDI/Forklift-compatible image (nbdkit, vddk, nbd-client, nbd kernel module).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: disk-block-diff-repair
+  namespace: default
+spec:
+  restartPolicy: Never
+  containers:
+    - name: repair
+      image: REPLACE_WITH_IMAGE
+      command:
+        - /bin/bash
+        - -ec
+        - |
+          set -o pipefail
+          STATE=/var/run/disk-block-diff/nbd.state
+
+          disk-block-diff nbd-open \
+            -server "${VDDK_ENDPOINT}" \
+            -username "${VDDK_USER}" \
+            -password "${VDDK_PASSWORD}" \
+            -thumbprint "${VDDK_THUMBPRINT}" \
+            -uuid "${VDDK_UUID}" \
+            -backing-file "${VDDK_BACKING_FILE}" \
+            -snapshot "${VDDK_SNAPSHOT}" \
+            -state-file "${STATE}"
+
+          disk-block-diff apply \
+            -nbd-state "${STATE}" \
+            -dest /dev/cdi-block-volume \
+            -blocks /var/tmp/repair.jsonl \
+            -workers 4
+
+          disk-block-diff nbd-close -state-file "${STATE}"
+      env:
+        - name: VDDK_ENDPOINT
+          value: REPLACE
+        - name: VDDK_USER
+          valueFrom:
+            secretKeyRef:
+              name: REPLACE
+              key: user
+        - name: VDDK_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: REPLACE
+              key: password
+        - name: VDDK_THUMBPRINT
+          value: REPLACE
+        - name: VDDK_UUID
+          value: REPLACE
+        - name: VDDK_BACKING_FILE
+          value: REPLACE
+        - name: VDDK_SNAPSHOT
+          value: REPLACE
+      securityContext:
+        privileged: true
+      volumeMounts:
+        - name: target
+          mountPath: /dev/cdi-block-volume
+        - name: scratch
+          mountPath: /var/tmp
+        - name: run
+          mountPath: /var/run/disk-block-diff
+        - name: vddk-config
+          mountPath: /etc/vddk-config
+          readOnly: true
+  volumes:
+    - name: target
+      persistentVolumeClaim:
+        claimName: REPLACE_WITH_PVC_NAME
+    - name: scratch
+      emptyDir: {}
+    - name: run
+      emptyDir: {}
+    - name: vddk-config
+      configMap:
+        name: REPLACE_VDDK_CONFIGMAP
+        optional: true

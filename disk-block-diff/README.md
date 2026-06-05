@@ -27,6 +27,8 @@ go build -o disk-block-diff .
 
 Static binary; no cgo. Copy the same binary to the VMware helper VM and the OpenShift importer pod.
 
+`nbd-open` additionally requires **nbdkit with the VDDK plugin**, the **VDDK libraries**, and **nbd-client** plus the **nbd kernel module** (privileged pod). Use a CDI/Forklift importer-compatible image or equivalent.
+
 ## Commands
 
 ```bash
@@ -41,6 +43,16 @@ Static binary; no cgo. Copy the same binary to the VMware helper VM and the Open
 
 # Copy mismatched blocks from source onto destination
 ./disk-block-diff apply -source /dev/sdb -dest /dev/cdi-block-volume -blocks repair.jsonl -workers 4
+
+# OpenShift: expose VMware source as local NBD device via nbdkit/VDDK
+./disk-block-diff nbd-open \
+  -server vcenter.example \
+  -uuid <vm-uuid> \
+  -backing-file '[datastore] vm/disk.vmdk' \
+  -snapshot <snapshot-id>
+./disk-block-diff apply -nbd-state /var/run/disk-block-diff/nbd.state \
+  -dest /dev/cdi-block-volume -blocks repair.jsonl
+./disk-block-diff nbd-close
 ```
 
 Resume a long hash with `-start-index N` (manifest will contain only blocks from N onward; merge manifests externally or re-hash from scratch for simplicity).
@@ -61,7 +73,11 @@ Resume a long hash with `-start-index N` (manifest will contain only blocks from
 
 ### OpenShift side (privileged importer-style pod)
 
-Example pod manifest: [examples/hash-pod.yaml](examples/hash-pod.yaml)
+Hash destination only: [examples/hash-pod.yaml](examples/hash-pod.yaml)
+
+Repair from vCenter without a VMware helper VM: [examples/nbd-apply-pod.yaml](examples/nbd-apply-pod.yaml)
+
+`nbd-open` starts nbdkit with the VDDK plugin, connects `nbd-client` to expose `/dev/nbd0`, and records session state. `apply -nbd-state` reads source blocks from that device.
 
 ```bash
 ./disk-block-diff hash -device /dev/cdi-block-volume -output /tmp/dest.jsonl -workers 8

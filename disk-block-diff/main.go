@@ -34,6 +34,12 @@ func main() {
 		runApply(os.Args[2:])
 	case "info":
 		runInfo(os.Args[2:])
+	case "nbd-open":
+		runNbdOpen(os.Args[2:])
+	case "nbd-close":
+		runNbdClose(os.Args[2:])
+	case "nbd-status":
+		runNbdStatus(os.Args[2:])
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -51,6 +57,9 @@ Usage:
   %s diff   -a SOURCE.jsonl -b DEST.jsonl -output TO-COPY.jsonl
   %s apply  -source PATH -dest PATH -blocks TO-COPY.jsonl [options]
   %s info   -device PATH [options]
+  %s nbd-open  [vCenter/VDDK options]
+  %s nbd-close [-state-file PATH]
+  %s nbd-status [-state-file PATH]
 
 Options for hash/info:
   -block-size SIZE   Chunk size (default 1GiB). Examples: 1GiB, 1G, 1073741824
@@ -60,6 +69,21 @@ Options for hash/info:
 Options for apply:
   -workers N         Parallel copy workers (default 2)
   -dry-run           Print blocks that would be copied
+  -nbd-state PATH    Read source device from nbd-open state file
+
+Options for nbd-open:
+  -server URL        vCenter host/URL (env: DISK_BLOCK_DIFF_VCENTER_SERVER)
+  -username USER     vCenter user
+  -password PASS     vCenter password
+  -thumbprint SHA1   vCenter thumbprint
+  -uuid UUID         VM UUID (instance, then BIOS fallback)
+  -moref vm-NNN      VM managed object ID (alternative to -uuid)
+  -backing-file PATH Backing file from DataVolume spec.source.vddk.backingFile
+  -snapshot ID       Snapshot/checkpoint for source view
+  -disk PATH         VMware disk path; skips backing-file lookup
+  -device PATH       Local NBD device (default /dev/nbd0)
+  -state-file PATH   Session state file (default /var/run/disk-block-diff/nbd.state)
+  -skip-connect      Start nbdkit only; use libnbd against the unix socket
 
 Manifest format (JSONL, one block per line):
   {"index":0,"offset":0,"size":1073741824,"md5":"..."}
@@ -74,13 +98,19 @@ Workflow:
   4. Copy differing blocks onto destination (source must be readable):
        disk-block-diff apply -source /dev/sdb -dest /dev/cdi-block-volume -blocks repair.jsonl
 
+OpenShift pod with VDDK (no local VMware disk required):
+  1. nbd-open -server vcenter.example -uuid <vm-uuid> -backing-file '[ds] vm/disk.vmdk' -snapshot <id>
+  2. hash -device /dev/nbd0 -output source.jsonl
+     OR apply -nbd-state /var/run/disk-block-diff/nbd.state -dest /dev/cdi-block-volume -blocks repair.jsonl
+  3. nbd-close
+
 Notes:
   - Devices must be the same logical size for a meaningful diff.
   - The last block may be shorter than -block-size.
   - MD5 is for diffing only, not cryptography.
   - Run hash/apply against raw block devices, not mounted filesystems.
 
-`, os.Args[0], os.Args[0], os.Args[0], os.Args[0])
+`, os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0])
 }
 
 func runHash(args []string) {
@@ -126,15 +156,24 @@ func runApply(args []string) {
 	source := fs.String("source", "", "Source block device to read from")
 	dest := fs.String("dest", "", "Destination block device to write to")
 	blocks := fs.String("blocks", "", "Diff list from diff subcommand")
+	nbdState := fs.String("nbd-state", "", "Use source device from nbd-open state file")
 	workers := fs.Int("workers", 2, "Parallel copy workers")
 	dryRun := fs.Bool("dry-run", false, "List blocks without copying")
 	_ = fs.Parse(args)
 
-	if *source == "" || *dest == "" || *blocks == "" {
+	sourcePath := *source
+	if sourcePath == "" && *nbdState != "" {
+		device, err := sourceFromNbdState(*nbdState)
+		if err != nil {
+			log.Fatalf("%v", err)
+		}
+		sourcePath = device
+	}
+	if sourcePath == "" || *dest == "" || *blocks == "" {
 		fs.Usage()
 		os.Exit(2)
 	}
-	if err := applyBlocks(*source, *dest, *blocks, *workers, *dryRun); err != nil {
+	if err := applyBlocks(sourcePath, *dest, *blocks, *workers, *dryRun); err != nil {
 		log.Fatalf("%v", err)
 	}
 }
