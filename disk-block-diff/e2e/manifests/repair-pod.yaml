@@ -1,0 +1,103 @@
+# Repair only: nbd-open + apply repair.jsonl. Does NOT hash the NBD device.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ${E2E_POD_NAME}
+  namespace: ${E2E_NAMESPACE}
+  labels:
+    app: disk-block-diff-e2e
+    phase: repair
+spec:
+  restartPolicy: Never
+  containers:
+    - name: repair
+      image: ${E2E_IMAGE}
+      command:
+        - /bin/bash
+        - -ec
+        - |
+          set -o pipefail
+          BIN="${E2E_POD_BINARY:-/usr/local/bin/disk-block-diff}"
+          STATE=/var/run/disk-block-diff/nbd.state
+          REPAIR=/var/tmp/repair.jsonl
+
+          wc -l "${REPAIR}"
+          head -1 "${REPAIR}" || true
+
+          "${BIN}" nbd-open \
+            -server "${E2E_VCENTER_SERVER}" \
+            -username "${E2E_VCENTER_USER}" \
+            -password "${E2E_VCENTER_PASSWORD}" \
+            -thumbprint "${E2E_VCENTER_THUMBPRINT}" \
+            -uuid "${E2E_VM_UUID}" \
+            -backing-file "${E2E_BACKING_FILE}" \
+            -snapshot "${E2E_SNAPSHOT}" \
+            -state-file "${STATE}"
+
+          "${BIN}" apply \
+            -nbd-state "${STATE}" \
+            -dest "${E2E_DEST_DEVICE}" \
+            -blocks "${REPAIR}" \
+            -workers "${E2E_APPLY_WORKERS}" \
+            -progress-interval "${E2E_PROGRESS_INTERVAL}"
+
+          "${BIN}" nbd-close -state-file "${STATE}"
+      env:
+        - name: E2E_VCENTER_SERVER
+          value: "${E2E_VCENTER_SERVER}"
+        - name: E2E_VCENTER_USER
+          valueFrom:
+            secretKeyRef:
+              name: ${E2E_VDDK_SECRET_NAME}
+              key: user
+        - name: E2E_VCENTER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ${E2E_VDDK_SECRET_NAME}
+              key: password
+        - name: E2E_VCENTER_THUMBPRINT
+          value: "${E2E_VCENTER_THUMBPRINT}"
+        - name: E2E_VM_UUID
+          value: "${E2E_VM_UUID}"
+        - name: E2E_BACKING_FILE
+          value: "${E2E_BACKING_FILE}"
+        - name: E2E_SNAPSHOT
+          value: "${E2E_SNAPSHOT}"
+        - name: E2E_DEST_DEVICE
+          value: "${E2E_DEST_DEVICE}"
+        - name: E2E_APPLY_WORKERS
+          value: "${E2E_APPLY_WORKERS}"
+        - name: E2E_PROGRESS_INTERVAL
+          value: "${E2E_PROGRESS_INTERVAL}"
+        - name: E2E_POD_BINARY
+          value: "${E2E_POD_BINARY:-/usr/local/bin/disk-block-diff}"
+      securityContext:
+        privileged: true
+      volumeMounts:
+        - name: target
+          mountPath: ${E2E_DEST_DEVICE}
+        - name: scratch
+          mountPath: /var/tmp
+        - name: repair
+          mountPath: /var/tmp/repair.jsonl
+          subPath: repair.jsonl
+        - name: run
+          mountPath: /var/run/disk-block-diff
+        - name: vddk-config
+          mountPath: /etc/vddk-config
+          readOnly: true
+  volumes:
+    - name: target
+      persistentVolumeClaim:
+        claimName: ${E2E_PVC_NAME}
+    - name: scratch
+      emptyDir: {}
+    - name: repair
+      configMap:
+        name: ${E2E_REPAIR_CONFIGMAP}
+    - name: run
+      emptyDir: {}
+    - name: vddk-config
+      configMap:
+        name: ${E2E_VDDK_CONFIGMAP}
+        optional: true

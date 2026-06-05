@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ${E2E_POD_NAME}
+  namespace: ${E2E_NAMESPACE}
+  labels:
+    app: disk-block-diff-e2e
+    phase: hash-dest
+spec:
+  restartPolicy: Never
+  containers:
+    - name: hasher
+      image: ${E2E_IMAGE}
+      command:
+        - /bin/bash
+        - -ec
+        - |
+          set -o pipefail
+          BIN="${E2E_POD_BINARY:-/usr/local/bin/disk-block-diff}"
+          DEST="${E2E_DEST_DEVICE}"
+          OUT="/var/tmp/dest.jsonl"
+
+          "${BIN}" info -device "${DEST}" -block-size "${E2E_BLOCK_SIZE}"
+
+          if [[ "${E2E_CORRUPT_DEST}" == "true" ]]; then
+            INDEX="${E2E_CORRUPT_BLOCK_INDEX}"
+            # Parse block size suffix (MiB/GiB) approximately for dd seek
+            echo "corrupting dest block index ${INDEX} for E2E"
+            BLOCK_BYTES="${E2E_BLOCK_SIZE_BYTES}"
+            OFFSET=$((INDEX * BLOCK_BYTES))
+            dd if=/dev/urandom of="${DEST}" bs=4096 count=1 seek=$((OFFSET / 4096)) conv=notrunc status=none
+          fi
+
+          "${BIN}" hash \
+            -device "${DEST}" \
+            -output "${OUT}" \
+            -block-size "${E2E_BLOCK_SIZE}" \
+            -workers "${E2E_HASH_WORKERS}" \
+            -progress-interval "${E2E_PROGRESS_INTERVAL}"
+
+          ls -lh "${OUT}"
+      env:
+        - name: E2E_BLOCK_SIZE
+          value: "${E2E_BLOCK_SIZE}"
+        - name: E2E_BLOCK_SIZE_BYTES
+          value: "${E2E_BLOCK_SIZE_BYTES}"
+        - name: E2E_HASH_WORKERS
+          value: "${E2E_HASH_WORKERS}"
+        - name: E2E_PROGRESS_INTERVAL
+          value: "${E2E_PROGRESS_INTERVAL}"
+        - name: E2E_CORRUPT_DEST
+          value: "${E2E_CORRUPT_DEST}"
+        - name: E2E_CORRUPT_BLOCK_INDEX
+          value: "${E2E_CORRUPT_BLOCK_INDEX}"
+        - name: E2E_DEST_DEVICE
+          value: "${E2E_DEST_DEVICE}"
+        - name: E2E_POD_BINARY
+          value: "${E2E_POD_BINARY:-/usr/local/bin/disk-block-diff}"
+      securityContext:
+        privileged: true
+      volumeMounts:
+        - name: target
+          mountPath: ${E2E_DEST_DEVICE}
+        - name: scratch
+          mountPath: /var/tmp
+  volumes:
+    - name: target
+      persistentVolumeClaim:
+        claimName: ${E2E_PVC_NAME}
+    - name: scratch
+      emptyDir:
+        sizeLimit: 4Gi

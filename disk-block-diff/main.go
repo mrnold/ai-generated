@@ -34,6 +34,8 @@ func main() {
 		runApply(os.Args[2:])
 	case "info":
 		runInfo(os.Args[2:])
+	case "parse-size":
+		runParseSize(os.Args[2:])
 	case "nbd-open":
 		runNbdOpen(os.Args[2:])
 	case "nbd-close":
@@ -56,7 +58,8 @@ Usage:
   %s hash   -device PATH -output MANIFEST.jsonl [options]
   %s diff   -a SOURCE.jsonl -b DEST.jsonl -output TO-COPY.jsonl
   %s apply  -source PATH -dest PATH -blocks TO-COPY.jsonl [options]
-  %s info   -device PATH [options]
+  %s info        -device PATH [options]
+  %s parse-size  -size SIZE
   %s nbd-open  [vCenter/VDDK options]
   %s nbd-close [-state-file PATH]
   %s nbd-status [-state-file PATH]
@@ -112,7 +115,7 @@ Notes:
   - MD5 is for diffing only, not cryptography.
   - Run hash/apply against raw block devices, not mounted filesystems.
 
-`, os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0])
+`, os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0])
 }
 
 func runHash(args []string) {
@@ -188,6 +191,22 @@ func runApply(args []string) {
 	if err := applyBlocks(sourcePath, *dest, *blocks, *workers, *dryRun, progressInterval); err != nil {
 		log.Fatalf("%v", err)
 	}
+}
+
+func runParseSize(args []string) {
+	fs := flag.NewFlagSet("parse-size", flag.ExitOnError)
+	sizeRaw := fs.String("size", "", "Size string to parse (e.g. 1GiB, 64MiB)")
+	_ = fs.Parse(args)
+
+	if *sizeRaw == "" {
+		fs.Usage()
+		os.Exit(2)
+	}
+	size, err := parseSize(*sizeRaw)
+	if err != nil {
+		log.Fatalf("invalid size: %v", err)
+	}
+	fmt.Println(size)
 }
 
 func runInfo(args []string) {

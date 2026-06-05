@@ -127,6 +127,19 @@ kubectl cp <namespace>/<pod>:/tmp/dest.jsonl ./dest.jsonl
 - `apply` uses `Pwrite` and does not truncate the destination; it only overwrites listed ranges.
 - MD5 is used for change detection only, not security.
 
+## End-to-end test (Option B)
+
+See [e2e/README.md](e2e/README.md) for a two-site repair E2E with **configurable disk size** (default `1GiB`):
+
+- VMware **helper VM**: hash source once
+- OpenShift: hash dest PVC, then **repair** (`nbd-open` + `apply` only)
+- Workstation: `diff` / verify
+
+```bash
+cp e2e/config.example.env e2e/config.env   # edit, do not commit
+./e2e/run-option-b.sh all
+```
+
 ## Caveats
 
 - Both disks must represent the **same logical content** (same size, same snapshot point). Diffing a live VM disk against a stale import will show many mismatches.
