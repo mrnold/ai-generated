@@ -163,17 +163,22 @@ func findDiskObjectID(ctx context.Context, vm *object.VirtualMachine, backingFil
 	if err := vm.Properties(ctx, vm.Reference(), []string{"config.hardware.device"}, &o); err != nil {
 		return "", fmt.Errorf("read VM devices: %w", err)
 	}
+	var diskNames []string
 	for _, device := range o.Config.Hardware.Device {
 		disk, ok := device.(*types.VirtualDisk)
 		if !ok {
 			continue
 		}
 		name := virtualDiskFileName(disk)
+		diskNames = append(diskNames, name)
 		if name == backingFile || strings.HasSuffix(name, backingFile) || strings.HasSuffix(backingFile, name) {
 			return disk.DiskObjectId, nil
 		}
 	}
-	return "", fmt.Errorf("disk %q not found on VM", backingFile)
+	if len(diskNames) == 0 {
+		return "", fmt.Errorf("disk %q not found on VM (no virtual disks on VM)", backingFile)
+	}
+	return "", fmt.Errorf("disk %q not found on VM (disks: %s)", backingFile, strings.Join(diskNames, "; "))
 }
 
 func findSnapshotDiskPath(ctx context.Context, vm *object.VirtualMachine, snapshotRef types.ManagedObjectReference, diskObjectID string) (string, error) {

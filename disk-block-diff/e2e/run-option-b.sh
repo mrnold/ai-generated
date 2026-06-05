@@ -76,12 +76,116 @@ require_manifest_vars() {
   fi
 }
 
+ensure_vddk_secret() {
+  require_manifest_vars E2E_VCENTER_USER E2E_VCENTER_PASSWORD E2E_VDDK_SECRET_NAME
+  echo "ensuring Secret ${E2E_NAMESPACE}/${E2E_VDDK_SECRET_NAME} from ${CONFIG}"
+  kubectl_cmd create secret generic "${E2E_VDDK_SECRET_NAME}" \
+    --from-literal=user="${E2E_VCENTER_USER}" \
+    --from-literal=password="${E2E_VCENTER_PASSWORD}" \
+    --dry-run=client -o yaml | kubectl_cmd apply -f -
+  kubectl_cmd label secret "${E2E_VDDK_SECRET_NAME}" app=disk-block-diff-e2e --overwrite &>/dev/null || true
+}
+
+is_example_vddk_config_value() {
+  local value="${1:-}"
+  [[ -z "${value}" ]] && return 0
+  [[ "${value}" == *'e2e-vm/e2e-disk'* ]] && return 0
+  [[ "${value}" == 'vcenter.example.com' ]] && return 0
+  return 1
+}
+
+# Fill E2E_BACKING_FILE / E2E_VM_UUID / E2E_SNAPSHOT from migration PVC or DataVolume when unset or still example placeholders.
+discover_repair_vddk_from_pvc() {
+  local pvc="${E2E_PVC_NAME:-}"
+  local ns="${E2E_NAMESPACE:-}"
+  [[ -z "${pvc}" || -z "${ns}" ]] && return 0
+
+  local pvc_json dv_json
+  pvc_json="$(kubectl_cmd get pvc "${pvc}" -o json 2>/dev/null || true)"
+  [[ -z "${pvc_json}" ]] && return 0
+  dv_json="$(kubectl_cmd get datavolume "${pvc}" -o json 2>/dev/null || true)"
+
+  local -a discovered
+  mapfile -t discovered < <(PVC_JSON="${pvc_json}" DV_JSON="${dv_json}" python3 - <<'PY'
+import json, os, sys
+
+def load(name):
+    raw = os.environ.get(name, "")
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+
+pvc = load("PVC_JSON")
+dv = load("DV_JSON")
+ann = (pvc.get("metadata") or {}).get("annotations") or {}
+
+def pick(*keys):
+    for key in keys:
+        if ann.get(key):
+            return ann[key]
+    return ""
+
+backing = pick(
+    "cdi.kubevirt.io/storage.import.backingFile",
+    "forklift.konveyor.io/disk-source",
+)
+uuid = pick("cdi.kubevirt.io/storage.import.uuid")
+snapshot = pick("cdi.kubevirt.io/storage.checkpoint.current")
+
+vddk = ((dv.get("spec") or {}).get("source") or {}).get("vddk") or {}
+if not backing:
+    backing = vddk.get("backingFile") or ""
+if not uuid:
+    uuid = vddk.get("uuid") or ""
+if not snapshot:
+    for cp in reversed((dv.get("status") or {}).get("checkpoints") or []):
+        if cp.get("current"):
+            snapshot = cp["current"]
+            break
+
+print(backing)
+print(uuid)
+print(snapshot)
+PY
+)
+
+  local disc_backing="${discovered[0]:-}"
+  local disc_uuid="${discovered[1]:-}"
+  local disc_snapshot="${discovered[2]:-}"
+
+  if [[ -n "${disc_backing}" ]] && is_example_vddk_config_value "${E2E_BACKING_FILE}"; then
+    export E2E_BACKING_FILE="${disc_backing}"
+    echo "discovered E2E_BACKING_FILE from PVC/DataVolume: ${E2E_BACKING_FILE}"
+  fi
+  if [[ -n "${disc_uuid}" ]] && is_example_vddk_config_value "${E2E_VM_UUID}"; then
+    export E2E_VM_UUID="${disc_uuid}"
+    echo "discovered E2E_VM_UUID from PVC/DataVolume: ${E2E_VM_UUID}"
+  fi
+  if [[ -n "${disc_snapshot}" ]] && [[ -z "${E2E_SNAPSHOT:-}" ]]; then
+    export E2E_SNAPSHOT="${disc_snapshot}"
+    echo "discovered E2E_SNAPSHOT from PVC/DataVolume: ${E2E_SNAPSHOT}"
+  fi
+}
+
 # Only substitute E2E_* — pod scripts use ${BIN}, ${DEST}, etc. at runtime.
 E2E_ENVSUBST_VARS='$E2E_APPLY_WORKERS $E2E_ARTIFACT_HOLD_SECONDS $E2E_BACKING_FILE $E2E_BLOCK_SIZE $E2E_BLOCK_SIZE_BYTES $E2E_CORRUPT_BLOCK_INDEX $E2E_CORRUPT_DEST $E2E_DEST_DEVICE $E2E_HASH_WORKERS $E2E_IMAGE $E2E_NAMESPACE $E2E_POD_BINARY $E2E_POD_NAME $E2E_PROGRESS_INTERVAL $E2E_PVC_NAME $E2E_REPAIR_CONFIGMAP $E2E_SNAPSHOT $E2E_VCENTER_SERVER $E2E_VCENTER_THUMBPRINT $E2E_VDDK_CONFIGMAP $E2E_VDDK_SECRET_NAME $E2E_VM_UUID'
 
 render_manifest() {
   local template=$1
   envsubst "${E2E_ENVSUBST_VARS}" < "${template}"
+}
+
+render_repair_pod() {
+  local rendered
+  rendered="$(render_manifest "${E2E_DIR}/manifests/repair-pod.yaml")"
+  if [[ -z "${E2E_VDDK_CONFIGMAP}" ]]; then
+    awk '/^# @vddk-config-start$/{skip=1; next} /^# @vddk-config-end$/{skip=0; next} !skip{print}' <<< "${rendered}"
+  else
+    awk '/^# @vddk-config-(start|end)$/ {next} {print}' <<< "${rendered}"
+  fi
 }
 
 # wait_pod NAME TIMEOUT [CONTAINER [REMOTE_ARTIFACT LOCAL_ARTIFACT]]
@@ -197,6 +301,11 @@ wait_pod() {
     if [[ "${phase}" == "Running" ]]; then
       start_log_follow
       try_copy_artifact || true
+      if [[ -n "${artifact_remote}" && "${artifact_copied}" -eq 1 ]]; then
+        stop_log_follow
+        printf '  %s  artifact saved; done (pod %s still in hold sleep)\n' "$(date +%H:%M:%S)" "${name}"
+        return 0
+      fi
     fi
 
     if [[ -z "${log_follow_pid}" ]]; then
@@ -324,12 +433,25 @@ phase_repair() {
     return 0
   fi
 
+  discover_repair_vddk_from_pvc
+  require_manifest_vars \
+    E2E_VCENTER_SERVER E2E_VCENTER_USER E2E_VCENTER_PASSWORD \
+    E2E_VCENTER_THUMBPRINT E2E_VM_UUID E2E_BACKING_FILE E2E_SNAPSHOT \
+    E2E_VDDK_SECRET_NAME E2E_IMAGE E2E_DEST_DEVICE
+  ensure_vddk_secret
+  echo "repair target: vm=${E2E_VM_UUID} backing=${E2E_BACKING_FILE} snapshot=${E2E_SNAPSHOT}"
+
   kubectl_cmd create configmap "${E2E_REPAIR_CONFIGMAP}" \
     --from-file=repair.jsonl="${REPAIR_MANIFEST}" \
     --dry-run=client -o yaml | kubectl_cmd apply -f -
 
   export E2E_POD_NAME="${E2E_POD_PREFIX}-repair-${RUN_ID}"
-  render_manifest "${E2E_DIR}/manifests/repair-pod.yaml" | kubectl_cmd apply -f -
+  if [[ -z "${E2E_VDDK_CONFIGMAP}" ]]; then
+    echo "E2E_VDDK_CONFIGMAP unset — repair pod runs without nbdkit extra-args ConfigMap"
+  else
+    echo "E2E_VDDK_CONFIGMAP=${E2E_VDDK_CONFIGMAP}"
+  fi
+  render_repair_pod | kubectl_cmd apply -f -
   wait_pod "${E2E_POD_NAME}" "${E2E_POD_TIMEOUT:-3600}" repair
 }
 

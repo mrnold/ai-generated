@@ -21,7 +21,7 @@ The repair pod **never** runs `hash` on the NBD device. NBD is used only for blo
 3. **Helper VM** with that disk attached read-only (for source manifest only).
 4. **Block-mode PVC** on OpenShift with the same logical content/size (e.g. from a prior import of the test VM).
 5. **E2E image** built from your cluster's CDI importer base (see below).
-6. **Kubernetes secret** with vCenter credentials for the repair pod.
+6. **vCenter credentials** in `e2e/config.env` (`E2E_VCENTER_USER` / `E2E_VCENTER_PASSWORD`); the repair phase creates the Kubernetes Secret automatically.
 
 ## Build `E2E_IMAGE`
 
@@ -107,10 +107,7 @@ E2E_MIRROR_DEST=quay.io/mrnold/e2e-cdi-importer:local ./e2e/mirror-base-image.sh
 cp e2e/config.example.env e2e/config.env
 # Edit e2e/config.env — set E2E_BASE_IMAGE, build E2E_IMAGE, fill vCenter/PVC fields
 
-# Create vCenter secret (example)
-kubectl -n default create secret generic disk-block-diff-e2e-vddk \
-  --from-literal=user='vcenter-user' \
-  --from-literal=password='vcenter-pass'
+# vCenter user/password in config.env — repair phase applies Secret E2E_VDDK_SECRET_NAME
 ```
 
 ### Configurable sizing

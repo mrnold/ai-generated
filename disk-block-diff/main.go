@@ -172,23 +172,24 @@ func runApply(args []string) {
 	progressIntervalRaw := fs.String("progress-interval", "10s", "Progress log interval (0 disables)")
 	_ = fs.Parse(args)
 
-	sourcePath := *source
-	if sourcePath == "" && *nbdState != "" {
-		device, err := sourceFromNbdState(*nbdState)
-		if err != nil {
-			log.Fatalf("%v", err)
-		}
-		sourcePath = device
-	}
-	if sourcePath == "" || *dest == "" || *blocks == "" {
+	if (*source == "" && *nbdState == "") || *dest == "" || *blocks == "" {
 		fs.Usage()
 		os.Exit(2)
 	}
+	applySrc, err := openApplySource(*source, *nbdState)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+	defer func() {
+		if err := applySrc.close(); err != nil {
+			log.Printf("close source: %v", err)
+		}
+	}()
 	progressInterval, err := parseProgressInterval(*progressIntervalRaw)
 	if err != nil {
 		log.Fatalf("invalid progress-interval: %v", err)
 	}
-	if err := applyBlocks(sourcePath, *dest, *blocks, *workers, *dryRun, progressInterval); err != nil {
+	if err := applyBlocks(applySrc.reader, applySrc.label, *dest, *blocks, *workers, *dryRun, progressInterval); err != nil {
 		log.Fatalf("%v", err)
 	}
 }

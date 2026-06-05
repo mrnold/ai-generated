@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func applyBlocks(sourcePath string, destPath string, diffPath string, workers int, dryRun bool, progressInterval time.Duration) error {
+func applyBlocks(source io.ReaderAt, sourceLabel string, destPath string, diffPath string, workers int, dryRun bool, progressInterval time.Duration) error {
 	records, err := readDiffManifest(diffPath)
 	if err != nil {
 		return err
@@ -20,12 +20,6 @@ func applyBlocks(sourcePath string, destPath string, diffPath string, workers in
 		log.Printf("diff list is empty, nothing to copy")
 		return nil
 	}
-
-	source, err := os.Open(sourcePath)
-	if err != nil {
-		return fmt.Errorf("open source %s: %w", sourcePath, err)
-	}
-	defer source.Close()
 
 	dest, err := os.OpenFile(destPath, os.O_WRONLY, 0)
 	if err != nil {
@@ -90,11 +84,11 @@ func applyBlocks(sourcePath string, destPath string, diffPath string, workers in
 	if failed.Load() > 0 {
 		return fmt.Errorf("apply finished with %d block failures", failed.Load())
 	}
-	log.Printf("applied %d blocks (%s) from %s to %s", totalItems, formatBytes(totalBytes), sourcePath, destPath)
+	log.Printf("applied %d blocks (%s) from %s to %s", totalItems, formatBytes(totalBytes), sourceLabel, destPath)
 	return nil
 }
 
-func copyBlock(source *os.File, dest *os.File, offset int64, size int64, buf []byte) error {
+func copyBlock(source io.ReaderAt, dest *os.File, offset int64, size int64, buf []byte) error {
 	remaining := size
 	current := offset
 

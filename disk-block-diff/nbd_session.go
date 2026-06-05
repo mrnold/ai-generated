@@ -59,20 +59,22 @@ func openNbdSession(cfg vddkNbdkitConfig, device string, statePath string, skipC
 
 	if !skipConnect {
 		if err := ensureNbdKernelModule(); err != nil {
-			_ = nbdkit.stop()
-			return err
+			log.Printf("nbd kernel module unavailable (%v); using libnbd socket mode", err)
+			skipConnect = true
+		} else if err := connectNbdClient(cfg.Socket, device); err != nil {
+			log.Printf("nbd-client connect failed (%v); using libnbd socket mode", err)
+			skipConnect = true
+		} else {
+			log.Printf("connected unix socket %s to %s", cfg.Socket, device)
 		}
-		if err := connectNbdClient(cfg.Socket, device); err != nil {
-			_ = nbdkit.stop()
-			return err
-		}
-		log.Printf("connected unix socket %s to %s", cfg.Socket, device)
-	} else {
-		log.Printf("skipping nbd-client connect; use libnbd with nbd+unix://?socket=%s", cfg.Socket)
+	}
+	if skipConnect {
+		state.Device = ""
+		log.Printf("source via libnbd socket %s (apply -nbd-state)", cfg.Socket)
 	}
 
 	if err := writeNbdSessionState(statePath, state); err != nil {
-		if !skipConnect {
+		if state.Device != "" {
 			_ = disconnectNbdClient(device)
 		}
 		_ = nbdkit.stop()
@@ -107,6 +109,8 @@ func closeNbdSession(statePath string) error {
 		if err := disconnectNbdClient(state.Device); err != nil {
 			log.Printf("warning: disconnect %s: %v", state.Device, err)
 		}
+	} else if state.Socket != "" {
+		log.Printf("libnbd socket session %s (no nbd-client device to disconnect)", state.Socket)
 	}
 
 	if state.PidFile != "" {
@@ -195,11 +199,27 @@ func writeNbdSessionState(path string, state *nbdSessionState) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
+func modprobePath() string {
+	for _, candidate := range []string{"/sbin/modprobe", "/usr/sbin/modprobe", "modprobe"} {
+		if _, err := exec.LookPath(candidate); err == nil {
+			return candidate
+		}
+	}
+	return ""
+}
+
 func ensureNbdKernelModule() error {
 	if _, err := os.Stat("/sys/module/nbd"); err == nil {
 		return nil
 	}
-	cmd := exec.Command("modprobe", "nbd")
+	if _, err := os.Stat("/dev/nbd0"); err == nil {
+		return nil
+	}
+	path := modprobePath()
+	if path == "" {
+		return fmt.Errorf("modprobe not found and /dev/nbd0 missing")
+	}
+	cmd := exec.Command(path, "nbd")
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("load nbd kernel module (needs privileged pod): %w", err)
 	}

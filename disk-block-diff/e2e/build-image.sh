@@ -20,6 +20,7 @@ if [[ -f "${CONFIG}" ]]; then
 fi
 
 BASE_IMAGE="${E2E_BASE_IMAGE:-}"
+BUILDER_IMAGE="${E2E_BUILDER_IMAGE:-quay.io/centos/centos:stream9}"
 VDDK_IMAGE="${E2E_VDDK_IMAGE:-}"
 OUTPUT_IMAGE="${E2E_IMAGE:-disk-block-diff-e2e:local}"
 KIND_CLUSTER=""
@@ -43,6 +44,7 @@ Build a local E2E image with disk-block-diff on top of a CDI importer image.
 Environment / config.env:
   E2E_BASE_IMAGE   CDI importer image from your cluster's CDI version (required)
   E2E_VDDK_IMAGE   VDDK init image (discovered from cluster if unset)
+  E2E_BUILDER_IMAGE  EL9 image with dnf for libnbd-devel build (default: centos:stream9)
   E2E_IMAGE        Output tag (default: disk-block-diff-e2e:local)
 
 Options:
@@ -77,6 +79,10 @@ while [[ $# -gt 0 ]]; do
     --vddk)
       VDDK_IMAGE=$2
       VDDK_EXPLICIT=1
+      shift 2
+      ;;
+    --builder)
+      BUILDER_IMAGE=$2
       shift 2
       ;;
     --tag)
@@ -163,22 +169,21 @@ EOF
   exit 1
 fi
 
-echo "building disk-block-diff binary"
-(cd "${ROOT}" && CGO_ENABLED=0 go build -o disk-block-diff .)
-
 echo "building image ${OUTPUT_IMAGE}"
 echo "  importer base: ${BASE_IMAGE}"
+echo "  builder:       ${BUILDER_IMAGE}"
 echo "  vddk libs:     ${VDDK_IMAGE}"
 ${CONTAINER_CMD} build \
   -f "${E2E_DIR}/Containerfile" \
   --build-arg "BASE_IMAGE=${BASE_IMAGE}" \
+  --build-arg "BUILDER_IMAGE=${BUILDER_IMAGE}" \
   --build-arg "VDDK_IMAGE=${VDDK_IMAGE}" \
   -t "${OUTPUT_IMAGE}" \
   "${ROOT}"
 
 echo "verifying nbdkit and binary in image"
 ${CONTAINER_CMD} run --rm --entrypoint /bin/bash "${OUTPUT_IMAGE}" -ec \
-  'disk-block-diff parse-size -size 1GiB && nbdkit --version && ls -l /opt/vmware-vix-disklib-distrib | head -3'
+  'disk-block-diff parse-size -size 1GiB && nbdkit --version && ldd /usr/local/bin/disk-block-diff | grep -q libnbd && ls -l /opt/vmware-vix-disklib-distrib | head -3'
 
 if [[ -n "${KIND_CLUSTER}" ]]; then
   if ! command -v kind >/dev/null 2>&1; then

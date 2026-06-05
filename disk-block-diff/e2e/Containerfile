@@ -1,18 +1,31 @@
-# E2E image: CDI importer runtime + VDDK libraries + disk-block-diff.
+# E2E image: CDI importer runtime + VDDK libraries + disk-block-diff (libnbd).
 #
 # VDDK is not redistributable — VDDK_IMAGE must be your private init image (Forklift
 # provider / self-built from VMware tarball), not the public kubevirt empty shell.
-# CDI importer pods normally copy VDDK in via an init container; this Containerfile
-# bakes libs in so standalone E2E pods work without that init step.
 ARG BASE_IMAGE=quay.io/kubevirt/cdi-importer:latest
-ARG VDDK_IMAGE
+ARG VDDK_IMAGE=
+# EL9 builder for libnbd-devel (cdi-importer runtime has no dnf/microdnf).
+ARG BUILDER_IMAGE=quay.io/centos/centos:stream9
 
 FROM ${VDDK_IMAGE} AS vddk
+
+FROM ${BUILDER_IMAGE} AS build
+USER 0
+RUN dnf install -y dnf-plugins-core && \
+    dnf config-manager --set-enabled crb && \
+    dnf install -y golang libnbd-devel gcc git && \
+    dnf clean all
+WORKDIR /src
+COPY go.mod go.sum ./
+COPY *.go ./
+ENV CGO_ENABLED=1 GOTOOLCHAIN=auto
+RUN go build -o disk-block-diff .
+
 FROM ${BASE_IMAGE}
 
 USER 0
 COPY --from=vddk /vmware-vix-disklib-distrib /opt/vmware-vix-disklib-distrib
-COPY disk-block-diff /usr/local/bin/disk-block-diff
+COPY --from=build /src/disk-block-diff /usr/local/bin/disk-block-diff
 RUN chmod 755 /usr/local/bin/disk-block-diff
 
 USER 1001

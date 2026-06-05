@@ -84,9 +84,11 @@ spec:
           subPath: repair.jsonl
         - name: run
           mountPath: /var/run/disk-block-diff
+# @vddk-config-start
         - name: vddk-config
           mountPath: /etc/vddk-config
           readOnly: true
+# @vddk-config-end
   volumes:
     - name: target
       persistentVolumeClaim:
@@ -98,7 +100,8 @@ spec:
         name: ${E2E_REPAIR_CONFIGMAP}
     - name: run
       emptyDir: {}
+# @vddk-config-start
     - name: vddk-config
       configMap:
         name: ${E2E_VDDK_CONFIGMAP}
-        optional: true
+# @vddk-config-end

@@ -66,7 +66,12 @@ func TestHashDiffApplyRoundTrip(t *testing.T) {
 		t.Fatalf("expected block index 1, got %d", records[0].Index)
 	}
 
-	if err := applyBlocks(sourcePath, destPath, diffList, 1, false, 0); err != nil {
+	sourceFile, err := os.Open(sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sourceFile.Close()
+	if err := applyBlocks(sourceFile, sourcePath, destPath, diffList, 1, false, 0); err != nil {
 		t.Fatal(err)
 	}
 
