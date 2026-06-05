@@ -29,6 +29,8 @@ Static binary; no cgo. Copy the same binary to the VMware helper VM and the Open
 
 `nbd-open` additionally requires **nbdkit with the VDDK plugin**, the **VDDK libraries**, and **nbd-client** plus the **nbd kernel module** (privileged pod). Use a CDI/Forklift importer-compatible image or equivalent.
 
+**VDDK is not redistributable.** Public `quay.io/kubev2v/vddk` images are empty CI shells without VMware libraries. Use the same private VDDK init image configured on your Forklift vSphere provider (or build one from VMware's VDDK tarball).
+
 ## Commands
 
 ```bash
@@ -137,6 +139,7 @@ See [e2e/README.md](e2e/README.md) for a two-site repair E2E with **configurable
 
 ```bash
 cp e2e/config.example.env e2e/config.env   # edit, do not commit
+./e2e/build-image.sh --discover              # discover importer/VDDK from cluster, then build
 ./e2e/run-option-b.sh all
 ```
 

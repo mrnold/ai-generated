@@ -23,11 +23,14 @@ func hashDevice(devicePath string, outputPath string, blockSize int64, workers i
 	}
 	defer f.Close()
 
-	info, err := f.Stat()
+	size, err := deviceSize(f, devicePath)
 	if err != nil {
-		return fmt.Errorf("stat device %s: %w", devicePath, err)
+		return fmt.Errorf("size of device %s: %w", devicePath, err)
 	}
-	deviceSize := info.Size()
+	if size <= 0 {
+		return fmt.Errorf("device %s has size 0 (wrong path or empty disk?)", devicePath)
+	}
+	deviceSize := size
 	totalBlocks := blockCount(deviceSize, blockSize)
 	if startIndex >= totalBlocks {
 		return fmt.Errorf("start-index %d is beyond block count %d", startIndex, totalBlocks)

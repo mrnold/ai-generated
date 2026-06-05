@@ -1,0 +1,18 @@
+# E2E image: CDI importer runtime + VDDK libraries + disk-block-diff.
+#
+# VDDK is not redistributable — VDDK_IMAGE must be your private init image (Forklift
+# provider / self-built from VMware tarball), not the public kubevirt empty shell.
+# CDI importer pods normally copy VDDK in via an init container; this Containerfile
+# bakes libs in so standalone E2E pods work without that init step.
+ARG BASE_IMAGE=quay.io/kubevirt/cdi-importer:latest
+ARG VDDK_IMAGE
+
+FROM ${VDDK_IMAGE} AS vddk
+FROM ${BASE_IMAGE}
+
+USER 0
+COPY --from=vddk /vmware-vix-disklib-distrib /opt/vmware-vix-disklib-distrib
+COPY disk-block-diff /usr/local/bin/disk-block-diff
+RUN chmod 755 /usr/local/bin/disk-block-diff
+
+USER 1001

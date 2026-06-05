@@ -17,7 +17,7 @@ spec:
         - -ec
         - |
           set -o pipefail
-          BIN="${E2E_POD_BINARY:-/usr/local/bin/disk-block-diff}"
+          BIN="${E2E_POD_BINARY}"
           STATE=/var/run/disk-block-diff/nbd.state
           REPAIR=/var/tmp/repair.jsonl
 
@@ -70,12 +70,13 @@ spec:
         - name: E2E_PROGRESS_INTERVAL
           value: "${E2E_PROGRESS_INTERVAL}"
         - name: E2E_POD_BINARY
-          value: "${E2E_POD_BINARY:-/usr/local/bin/disk-block-diff}"
+          value: "${E2E_POD_BINARY}"
       securityContext:
         privileged: true
-      volumeMounts:
+      volumeDevices:
         - name: target
-          mountPath: ${E2E_DEST_DEVICE}
+          devicePath: ${E2E_DEST_DEVICE}
+      volumeMounts:
         - name: scratch
           mountPath: /var/tmp
         - name: repair

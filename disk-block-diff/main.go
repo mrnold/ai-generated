@@ -230,11 +230,10 @@ func runInfo(args []string) {
 	}
 	defer f.Close()
 
-	info, err := f.Stat()
+	size, err := deviceSize(f, *device)
 	if err != nil {
-		log.Fatalf("stat device: %v", err)
+		log.Fatalf("device size: %v", err)
 	}
-	size := info.Size()
 	blocks := blockCount(size, blockSize)
 	fmt.Printf("device:      %s\n", *device)
 	fmt.Printf("size_bytes:  %d\n", size)

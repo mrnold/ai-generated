@@ -57,9 +57,10 @@ spec:
           value: REPLACE
       securityContext:
         privileged: true
-      volumeMounts:
+      volumeDevices:
         - name: target
-          mountPath: /dev/cdi-block-volume
+          devicePath: /dev/cdi-block-volume
+      volumeMounts:
         - name: scratch
           mountPath: /var/tmp
         - name: run
