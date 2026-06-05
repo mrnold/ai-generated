@@ -1,0 +1,8 @@
+# go build -o disk-block-diff .
+disk-block-diff
+
+# Local E2E config (secrets) — copy from e2e/config.example.env
+e2e/config.env
+
+# E2E runtime artifacts (rendered manifests, copied jsonl)
+e2e-work/
