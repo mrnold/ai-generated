@@ -4,3 +4,6 @@
 [submodule "disk-block-diff"]
 	path = disk-block-diff
 	url = git@github.com:mrnold-agent/disk-block-diff.git
+[submodule "nutanix-image-downloader"]
+	path = nutanix-image-downloader
+	url = git@github.com:mrnold-agent/nutanix-image-downloader.git
